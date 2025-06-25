@@ -1,0 +1,387 @@
+<?php
+/**
+ * Grateful Payment Gateway Class
+ *
+ * @package GratefulPayments
+ */
+
+namespace GratefulPayments;
+
+defined( 'ABSPATH' ) || exit;
+
+/**
+ * Grateful Payment Gateway
+ */
+class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
+
+	/**
+	 * API Key
+	 *
+	 * @var string
+	 */
+	public $api_key;
+
+	/**
+	 * Secret Key
+	 *
+	 * @var string
+	 */
+	public $secret_key;
+
+	/**
+	 * Constructor
+	 */
+	public function __construct() {
+		$this->id                 = 'grateful_payment';
+		$this->icon               = '';
+		$this->has_fields         = false;
+		$this->method_title       = __( 'Grateful Payment', 'grateful-payments' );
+		$this->method_description = __( 'A payment gateway that encourages gratitude before processing payment.', 'grateful-payments' );
+		$this->supports           = array(
+			'products',
+			'refunds',
+		);
+
+		$this->init_form_fields();
+		$this->init_settings();
+
+		$this->enabled    = $this->get_option( 'enabled', 'yes' );
+		$this->title = 'Grateful Payment';
+  	$this->description = 'Take a moment to express gratitude before completing your purchase. This practice helps cultivate mindfulness and appreciation.';
+		$this->api_key    = $this->get_option( 'api_key' );
+		$this->secret_key = $this->get_option( 'secret_key' );
+
+
+
+		// Hooks.
+		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
+		add_action( 'woocommerce_api_' . $this->id, array( $this, 'webhook' ) );
+		add_action( 'woocommerce_api_grateful_payment_return', array( $this, 'handle_return' ) );
+		add_action( 'admin_notices', array( $this, 'admin_notices' ) );
+	}
+
+	/**
+	 * Initialize form fields
+	 */
+	public function init_form_fields() {
+		$this->form_fields = array(
+			'enabled'      => array(
+				'title'   => __( 'Enable/Disable', 'grateful-payments' ),
+				'label'   => __( 'Enable Grateful Payment', 'grateful-payments' ),
+				'type'    => 'checkbox',
+				'description' => '',
+				'default' => 'yes',
+			),
+			'api_key'      => array(
+				'title'       => __( 'API Key', 'grateful-payments' ),
+				'type'        => 'password',
+				'description' => __( 'Enter your Grateful API key. This is used to create payments in Grateful with checkout data from WooCommerce.', 'grateful-payments' ),
+				'default'     => '',
+				'desc_tip'    => true,
+				'custom_attributes' => array(
+					'autocomplete' => 'off',
+				),
+			),
+			'secret_key'   => array(
+				'title'       => __( 'Secret Key', 'grateful-payments' ),
+				'type'        => 'password',
+				'description' => __( 'Enter the secret key from your Grateful dashboard for signature verification.', 'grateful-payments' ),
+				'default'     => '',
+				'desc_tip'    => true,
+				'custom_attributes' => array(
+					'autocomplete' => 'off',
+				),
+			),
+			'webhook_url'  => array(
+				'title'       => __( 'Webhook URL', 'grateful-payments' ),
+				'type'        => 'text',
+				'description' => __( 'Add this URL to your Grateful dashboard notifications settings to receive payment status updates.', 'grateful-payments' ),
+				'default'     => home_url( '/wc-api/grateful_payment' ),
+				'custom_attributes' => array(
+					'readonly' => 'readonly',
+				),
+			),
+		);
+	}
+
+	/**
+	 * Check if API key is configured
+	 *
+	 * @return bool
+	 */
+	public function is_api_key_configured() {
+		return ! empty( $this->api_key );
+	}
+
+	/**
+	 * Process payment
+	 *
+	 * @param int $order_id Order ID.
+	 * @return array
+	 */
+	public function process_payment($order_id) {
+		$order = wc_get_order($order_id);
+		
+		error_log('Grateful Payment: process_payment called for order ' . $order_id);
+		error_log('Grateful Payment: Gateway enabled is ' . ($this->enabled ? 'yes' : 'no'));
+		error_log('Grateful Payment: API key configured is ' . ($this->is_api_key_configured() ? 'yes' : 'no'));
+		
+		// Create payment in Grateful and redirect user
+		$order_data = array(
+				'total' => $order->get_total(),
+				'order_id' => $order_id,
+				'callback_url' => home_url('/wc-api/grateful_payment_return?order_id=' . $order_id),
+		);
+		
+		error_log('Grateful Payment: Order data prepared: ' . json_encode($order_data));
+		
+		$grateful_payment = $this->create_grateful_payment($order_data);
+		
+		error_log('Grateful Payment: API response: ' . json_encode($grateful_payment));
+		
+		if ($grateful_payment && isset($grateful_payment['url'])) {
+				error_log('Grateful Payment: Payment created successfully, redirecting to Grateful');
+				// Payment created successfully in Grateful, redirect user to Grateful
+				$order->update_status('pending', 'Payment created in Grateful. Redirecting user to complete payment. Payment ID: ' . ($grateful_payment['id'] ?? 'N/A'));
+				
+				// Store Grateful payment ID in order meta for reference
+				if (isset($grateful_payment['id'])) {
+						$order->update_meta_data('_grateful_payment_id', $grateful_payment['id']);
+						$order->save();
+				}
+				
+				// Empty cart
+				WC()->cart->empty_cart();
+				
+				error_log('Grateful Payment: Redirecting to: ' . $grateful_payment['url']);
+				return array(
+						'result'   => 'success',
+						'redirect' => $grateful_payment['url']
+				);
+		} else {
+				error_log('Grateful Payment: Failed to create payment in Grateful');
+				// Failed to create payment in Grateful
+				$order->update_status('failed', 'Failed to create payment in Grateful. Please check API key and try again.');
+				
+				return array(
+						'result'   => 'failure',
+						'redirect' => wc_get_checkout_url()
+				);
+		}
+}
+
+	/**
+	 * Handle webhook from Grateful
+	 */
+	public function webhook() {
+		$body = file_get_contents( 'php://input' );
+		$data = json_decode( $body, true );
+
+		if ( ! $data ) {
+			http_response_code( 400 );
+			exit;
+		}
+
+		// Verify webhook signature if available.
+		$signature = $_SERVER['HTTP_X_GRATEFUL_SIGNATURE'] ?? null;
+		if ( $signature && $this->secret_key ) {
+			$expected_signature = hash_hmac( 'sha256', $body, $this->secret_key );
+			if ( ! hash_equals( $expected_signature, $signature ) ) {
+				http_response_code( 401 );
+				exit;
+			}
+		}
+
+		// Extract order ID from external reference.
+		$external_reference_id = $data['externalReferenceId'] ?? $data['external_reference_id'] ?? null;
+		if ( ! $external_reference_id ) {
+			http_response_code( 400 );
+			exit;
+		}
+
+		$order = wc_get_order( $external_reference_id );
+		if ( ! $order ) {
+			http_response_code( 404 );
+			exit;
+		}
+
+		// Process the webhook based on status.
+		$status = $data['status'] ?? '';
+		switch ( $status ) {
+			case 'completed':
+			case 'success':
+				$order->payment_complete();
+				$order->add_order_note( __( 'Payment completed via Grateful Payment.', 'grateful-payments' ) );
+				break;
+
+			case 'failed':
+			case 'error':
+				$order->update_status( 'failed', __( 'Payment failed in Grateful.', 'grateful-payments' ) );
+				break;
+
+			case 'pending':
+				$order->update_status( 'pending', __( 'Payment is pending in Grateful.', 'grateful-payments' ) );
+				break;
+		}
+
+		http_response_code( 200 );
+		exit;
+	}
+
+	/**
+	 * Handle return from Grateful
+	 */
+	public function handle_return() {
+		// Get the order ID from the URL
+		$order_id = isset($_GET['order_id']) ? intval($_GET['order_id']) : 0;
+		$payment_status = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
+		
+		if (!$order_id) {
+				wp_redirect(wc_get_checkout_url());
+				exit;
+		}
+		
+		$order = wc_get_order($order_id);
+		if (!$order) {
+				wp_redirect(wc_get_checkout_url());
+				exit;
+		}
+		
+		// Check if this is a Grateful payment order
+		$grateful_payment_id = $order->get_meta('_grateful_payment_id');
+		if (!$grateful_payment_id) {
+				wp_redirect(wc_get_checkout_url());
+				exit;
+		}
+		
+		// Handle different return scenarios
+		switch ($payment_status) {
+				case 'success':
+						// Payment was successful, redirect to thank you page
+						wp_redirect($this->get_return_url($order));
+						break;
+						
+				case 'expired':
+				case 'failed':
+						// Payment was cancelled or failed
+						wp_redirect(wc_get_checkout_url());
+						break;
+						
+				default:
+						// Unknown status, redirect to thank you page (payment might still be processing)
+						wp_redirect($this->get_return_url($order));
+						break;
+		}
+		
+		exit;
+}
+
+	    /**
+     * Get API Key securely for payment processing
+     * This method ensures the API key is only accessible from the backend
+     */
+	public function get_api_key() {
+		// Return the API key - it's needed for payment processing
+		return $this->api_key;
+}
+
+	/**
+	 * Create payment in Grateful
+	 *
+	 * @param array $order_data Order data.
+	 * @return array|false
+	 */
+	public function create_grateful_payment($order_data) {
+		$api_key = $this->get_api_key();
+		
+		if (!$api_key) {
+				error_log('Grateful Payment: API key not available or not accessible from frontend');
+				return false;
+		}
+		
+		// Prepare the payment data for Grateful API
+		$payment_data = array(
+				'fiatAmount' => $order_data['total'],
+				'fiatCurrency' => get_woocommerce_currency(),
+				'externalReferenceId' => (string) $order_data['order_id'],
+				'callbackUrl' => $order_data['callback_url'],
+		);
+		
+		error_log('Grateful Payment: Creating payment with data: ' . json_encode($payment_data));
+		
+		// Make API call to Grateful
+		$response = wp_remote_post('http://localhost:3000/api/payments/new', array(
+				'headers' => array(
+						'Content-Type' => 'application/json',
+						'x-api-key' => $api_key,
+				),
+				'body' => json_encode($payment_data),
+				'timeout' => 30,
+		));
+		
+		if (is_wp_error($response)) {
+				error_log('Grateful Payment API Error: ' . $response->get_error_message());
+				return false;
+		}
+		
+		$response_code = wp_remote_retrieve_response_code($response);
+		$body = wp_remote_retrieve_body($response);
+		$data = json_decode($body, true);
+		
+		error_log('Grateful Payment API Response Code: ' . $response_code);
+		error_log('Grateful Payment API Response Body: ' . $body);
+		
+		if ($response_code !== 200) {
+				error_log('Grateful Payment API Error: HTTP ' . $response_code . ' - ' . $body);
+				return false;
+		}
+		
+		// Check if we have the required URL field in the response
+		if (!isset($data['url'])) {
+				error_log('Grateful Payment API Error: Missing "url" field in response');
+				return false;
+		}
+		
+		error_log('Grateful Payment: Successfully created payment. URL: ' . $data['url']);
+		return $data;
+}
+
+	/**
+	 * Display admin notices
+	 */
+	public function admin_notices() {
+		if ( 'yes' === $this->enabled && ! $this->is_api_key_configured() ) {
+			echo '<div class="notice notice-warning"><p>';
+			echo esc_html__( 'Grateful Payment is enabled but no API key has been set. Please configure your API key in the payment settings.', 'grateful-payments' );
+			echo '</p></div>';
+		}
+	}
+
+	/**
+	 * Process refund
+	 *
+	 * @param int    $order_id Order ID.
+	 * @param float  $amount   Refund amount.
+	 * @param string $reason   Refund reason.
+	 * @return bool|WP_Error
+	 */
+	public function process_refund( $order_id, $amount = null, $reason = '' ) {
+		$order = wc_get_order( $order_id );
+
+		if ( ! $order ) {
+			return false;
+		}
+
+		// Get the Grateful payment ID from order meta.
+		$grateful_payment_id = $order->get_meta( '_grateful_payment_id' );
+
+		if ( ! $grateful_payment_id ) {
+			return new \WP_Error( 'grateful_refund_error', __( 'Grateful payment ID not found for this order.', 'grateful-payments' ) );
+		}
+
+		// Implement refund logic with Grateful API here.
+		// This is a placeholder - replace with actual Grateful API integration.
+
+		return true;
+	}
+} 
