@@ -6,7 +6,7 @@
 	"title": "Grateful Payments",
 	"category": "widgets",
 	"textdomain": "grateful-payments",
-	"editorScript": "file:./build/index.js",
+	"editorScript": "file:./build/checkout.js",
 	"editorStyle": "file:./build/index.css",
 	"style": "file:./build/style-index.css"
 }
