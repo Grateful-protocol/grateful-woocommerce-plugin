@@ -228,53 +228,167 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 		exit;
 	}
 
+    /**
+     * Handle return from Grateful payment
+     */
+    public function handle_return() {
+			// Get the order ID from the URL
+			$order_id = isset($_GET['order_id']) ? intval($_GET['order_id']) : 0;
+			$payment_status = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
+			
+			if (!$order_id) {
+					wp_redirect(wc_get_checkout_url());
+					exit;
+			}
+			
+			$order = wc_get_order($order_id);
+			if (!$order) {
+					wp_redirect(wc_get_checkout_url());
+					exit;
+			}
+			
+			// Check if this is a Grateful payment order
+			$grateful_payment_id = $order->get_meta('_grateful_payment_id');
+			if (!$grateful_payment_id) {
+					wp_redirect(wc_get_checkout_url());
+					exit;
+			}
+
+			// NEW: Validate order status using Grateful API
+			$api_status = $this->get_grateful_payment_status($grateful_payment_id);
+			
+			if ($api_status) {
+					error_log('Grateful Payment Return: API status validation successful for order ' . $order_id . ': ' . json_encode($api_status));
+					
+					// Use API status instead of URL parameter
+					$validated_status = $api_status['status'] ?? $payment_status;
+					
+					// Update order status based on API response if needed
+					$this->update_order_from_api_status($order, $api_status);
+					
+					// Handle return based on validated status
+					switch (strtolower($validated_status)) {
+							case 'success':
+									wp_redirect($this->get_return_url($order));
+									break;
+									
+							case 'expired':
+							case 'failed':
+									wp_redirect(wc_get_checkout_url());
+									break;
+									
+							case 'pending':
+							case 'processing':
+									wp_redirect($this->get_return_url($order));
+									break;
+									
+							default:
+									// Unknown status - fallback to URL parameter or redirect to thank you page
+									error_log('Grateful Payment Return: Unknown API status "' . $validated_status . '" for order ' . $order_id);
+									wp_redirect($this->get_return_url($order));
+									break;
+					}
+			} else {
+					error_log('Grateful Payment Return: API status validation failed for order ' . $order_id . ', falling back to URL parameter');
+					
+					// Fallback to original URL parameter logic if API call fails
+					switch ($payment_status) {
+							case 'success':
+									wp_redirect($this->get_return_url($order));
+									break;
+									
+							case 'expired':
+							case 'failed':
+									wp_redirect(wc_get_checkout_url());
+									break;
+									
+							default:
+									wp_redirect($this->get_return_url($order));
+									break;
+					}
+			}
+			
+			exit;
+	}
+
 	/**
-	 * Handle return from Grateful
+	 * Get payment status from Grateful API
 	 */
-	public function handle_return() {
-		// Get the order ID from the URL
-		$order_id = isset($_GET['order_id']) ? intval($_GET['order_id']) : 0;
-		$payment_status = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '';
-		
-		if (!$order_id) {
-				wp_redirect(wc_get_checkout_url());
-				exit;
-		}
-		
-		$order = wc_get_order($order_id);
-		if (!$order) {
-				wp_redirect(wc_get_checkout_url());
-				exit;
-		}
-		
-		// Check if this is a Grateful payment order
-		$grateful_payment_id = $order->get_meta('_grateful_payment_id');
-		if (!$grateful_payment_id) {
-				wp_redirect(wc_get_checkout_url());
-				exit;
-		}
-		
-		// Handle different return scenarios
-		switch ($payment_status) {
-				case 'success':
-						// Payment was successful, redirect to thank you page
-						wp_redirect($this->get_return_url($order));
-						break;
-						
-				case 'expired':
-				case 'failed':
-						// Payment was cancelled or failed
-						wp_redirect(wc_get_checkout_url());
-						break;
-						
-				default:
-						// Unknown status, redirect to thank you page (payment might still be processing)
-						wp_redirect($this->get_return_url($order));
-						break;
-		}
-		
-		exit;
-}
+	public function get_grateful_payment_status($payment_id) {
+			$api_key = $this->get_api_key();
+			
+			if (!$api_key || !$payment_id) {
+					error_log('Grateful Payment: API key or payment ID missing for status check');
+					return false;
+			}
+			
+			// TODO: Replace with production URL
+			$status_url = 'http://localhost:3000/api/payments/' . $payment_id . '/status';
+			
+			error_log('Grateful Payment: Checking status for payment ID: ' . $payment_id);
+			
+			$response = wp_remote_get($status_url, array(
+					'headers' => array(
+							'Content-Type' => 'application/json',
+							'x-api-key' => $api_key,
+					),
+					'timeout' => 15,
+			));
+			
+			if (is_wp_error($response)) {
+					error_log('Grateful Payment Status API Error: ' . $response->get_error_message());
+					return false;
+			}
+			
+			$response_code = wp_remote_retrieve_response_code($response);
+			$body = wp_remote_retrieve_body($response);
+			$data = json_decode($body, true);
+			
+			error_log('Grateful Payment Status API Response Code: ' . $response_code);
+			error_log('Grateful Payment Status API Response Body: ' . $body);
+			
+			if ($response_code !== 200) {
+					error_log('Grateful Payment Status API Error: HTTP ' . $response_code . ' - ' . $body);
+					return false;
+			}
+			
+			if (!$data || !isset($data['status'])) {
+					error_log('Grateful Payment Status API Error: Invalid response format');
+					return false;
+			}
+			
+			return $data;
+	}
+
+	/**
+	 * Update order status based on API response
+	 */
+	private function update_order_from_api_status($order, $api_status) {
+			$payment_status = strtolower($api_status['status'] ?? '');
+			$payment_id = $order->get_meta('_grateful_payment_id');
+			$current_status = $order->get_status();
+			
+			switch ($payment_status) {
+					case 'success':
+							$order->payment_complete($payment_id);
+							$order->add_order_note('Payment status confirmed via API. Payment ID: ' . $payment_id);
+							error_log('Grateful Payment Return: Order ' . $order->get_id() . ' marked as completed via API');
+							break;
+							
+					case 'failed':
+							$order->update_status('failed', 'Payment failed confirmed via API. Payment ID: ' . $payment_id);
+							error_log('Grateful Payment Return: Order ' . $order->get_id() . ' marked as failed via API');
+							break;
+							
+					case 'pending':
+					case 'processing':
+							$order->update_status('pending', 'Payment pending confirmed via API. Payment ID: ' . $payment_id);
+							error_log('Grateful Payment Return: Order ' . $order->get_id() . ' status updated to pending via API');
+							break;
+			}
+			
+			$order->save();
+	}
 
 	    /**
      * Get API Key securely for payment processing

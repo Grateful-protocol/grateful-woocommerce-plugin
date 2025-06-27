@@ -2,6 +2,7 @@
 /**
  * Plugin Name: Grateful
  * Version: 0.1.0
+ * Description: Stablecoin payment gateway
  * Author: Grateful
  * Author URI: https://woo.me
  * Text Domain: grateful
