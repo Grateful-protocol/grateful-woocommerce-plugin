@@ -1,10 +1,10 @@
 <?php
 /**
- * Plugin Name: Grateful Payments
+ * Plugin Name: Grateful
  * Version: 0.1.0
- * Author: The WordPress Contributors
- * Author URI: https://woo.com
- * Text Domain: grateful-payments
+ * Author: Grateful
+ * Author URI: https://woo.me
+ * Text Domain: grateful
  * Domain Path: /languages
  *
  * License: GNU General Public License v3.0

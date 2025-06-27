@@ -93,7 +93,7 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 				),
 			),
 			'webhook_url'  => array(
-				'title'       => __( 'Webhook URL', 'grateful-payments' ),
+				'title'       => __( 'Notification URL', 'grateful-payments' ),
 				'type'        => 'text',
 				'description' => __( 'Add this URL to your Grateful dashboard notifications settings to receive payment status updates.', 'grateful-payments' ),
 				'default'     => home_url( '/wc-api/grateful_payment' ),
