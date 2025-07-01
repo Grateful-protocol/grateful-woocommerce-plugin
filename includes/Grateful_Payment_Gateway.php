@@ -323,7 +323,7 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 			}
 			
 			// TODO: Replace with production URL
-			$status_url = 'http://localhost:3000/api/payments/' . $payment_id . '/status';
+			$status_url = 'https://www.grateful.me/api/payments/' . $payment_id . '/status';
 			
 			error_log('Grateful Payment: Checking status for payment ID: ' . $payment_id);
 			
@@ -424,7 +424,7 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 		error_log('Grateful Payment: Creating payment with data: ' . json_encode($payment_data));
 		
 		// Make API call to Grateful
-		$response = wp_remote_post('http://localhost:3000/api/payments/new', array(
+		$response = wp_remote_post('https://www.grateful.me/api/payments/new', array(
 				'headers' => array(
 						'Content-Type' => 'application/json',
 						'x-api-key' => $api_key,
