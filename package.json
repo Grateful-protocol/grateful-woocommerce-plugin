@@ -1,7 +1,7 @@
 {
 	"name": "grateful-payments",
 	"version": "0.1.0",
-	"author": "The WordPress Contributors",
+	"author": "Grateful",
 	"license": "GPL-3.0+",
 	"main": "build/checkout.js",
 	"scripts": {
