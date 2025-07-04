@@ -33,7 +33,7 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 	 */
 	public function __construct() {
 		$this->id                 = 'grateful_payment';
-		$this->icon               = '';
+		$this->icon 							= apply_filters( 'woocommerce_gateway_icon', 'https://www.grateful.me/apple-touch-icon.png' );
 		$this->has_fields         = false;
 		$this->method_title       = __( 'Grateful Payment', 'grateful-payments' );
 		$this->method_description = __( 'A payment gateway that encourages gratitude before processing payment.', 'grateful-payments' );
