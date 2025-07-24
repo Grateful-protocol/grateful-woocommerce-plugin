@@ -322,7 +322,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 					return false;
 			}
 			
-			// TODO: Replace with production URL
 			$status_url = 'https://www.grateful.me/api/payments/' . $payment_id . '/status';
 			
 			error_log('Grateful Payment: Checking status for payment ID: ' . $payment_id);

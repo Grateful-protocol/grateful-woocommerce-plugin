@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name: Grateful
- * Version: 0.1.1
+ * Version: 0.1.3
  * Description: Stablecoin payment gateway
  * Author: Grateful
- * Author URI: https://woo.me
+ * Author URI: https://grateful.me
  * Text Domain: grateful
  * Domain Path: /languages
  *
