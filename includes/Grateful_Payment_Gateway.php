@@ -122,10 +122,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 	public function process_payment($order_id) {
 		$order = wc_get_order($order_id);
 		
-		error_log('Grateful Payment: process_payment called for order ' . $order_id);
-		error_log('Grateful Payment: Gateway enabled is ' . ($this->enabled ? 'yes' : 'no'));
-		error_log('Grateful Payment: API key configured is ' . ($this->is_api_key_configured() ? 'yes' : 'no'));
-		
 		// Create payment in Grateful and redirect user
 		$order_data = array(
 				'total' => $order->get_total(),
@@ -133,14 +129,9 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 				'callback_url' => home_url('/wc-api/grateful_payment_return?order_id=' . $order_id),
 		);
 		
-		error_log('Grateful Payment: Order data prepared: ' . json_encode($order_data));
-		
 		$grateful_payment = $this->create_grateful_payment($order_data);
 		
-		error_log('Grateful Payment: API response: ' . json_encode($grateful_payment));
-		
 		if ($grateful_payment && isset($grateful_payment['url'])) {
-				error_log('Grateful Payment: Payment created successfully, redirecting to Grateful');
 				// Payment created successfully in Grateful, redirect user to Grateful
 				$order->update_status('pending', 'Payment created in Grateful. Redirecting user to complete payment. Payment ID: ' . ($grateful_payment['id'] ?? 'N/A'));
 				
@@ -153,7 +144,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 				// Empty cart
 				WC()->cart->empty_cart();
 				
-				error_log('Grateful Payment: Redirecting to: ' . $grateful_payment['url']);
 				return array(
 						'result'   => 'success',
 						'redirect' => $grateful_payment['url']
@@ -258,8 +248,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 			$api_status = $this->get_grateful_payment_status($grateful_payment_id);
 			
 			if ($api_status) {
-					error_log('Grateful Payment Return: API status validation successful for order ' . $order_id . ': ' . json_encode($api_status));
-					
 					// Use API status instead of URL parameter
 					$validated_status = $api_status['status'] ?? $payment_status;
 					
@@ -324,8 +312,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 			
 			$status_url = 'https://www.grateful.me/api/payments/' . $payment_id . '/status';
 			
-			error_log('Grateful Payment: Checking status for payment ID: ' . $payment_id);
-			
 			$response = wp_remote_get($status_url, array(
 					'headers' => array(
 							'Content-Type' => 'application/json',
@@ -342,9 +328,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 			$response_code = wp_remote_retrieve_response_code($response);
 			$body = wp_remote_retrieve_body($response);
 			$data = json_decode($body, true);
-			
-			error_log('Grateful Payment Status API Response Code: ' . $response_code);
-			error_log('Grateful Payment Status API Response Body: ' . $body);
 			
 			if ($response_code !== 200) {
 					error_log('Grateful Payment Status API Error: HTTP ' . $response_code . ' - ' . $body);
@@ -371,18 +354,15 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 					case 'success':
 							$order->payment_complete($payment_id);
 							$order->add_order_note('Payment status confirmed via API. Payment ID: ' . $payment_id);
-							error_log('Grateful Payment Return: Order ' . $order->get_id() . ' marked as completed via API');
 							break;
 							
 					case 'failed':
 							$order->update_status('failed', 'Payment failed confirmed via API. Payment ID: ' . $payment_id);
-							error_log('Grateful Payment Return: Order ' . $order->get_id() . ' marked as failed via API');
 							break;
 							
 					case 'pending':
 					case 'processing':
 							$order->update_status('pending', 'Payment pending confirmed via API. Payment ID: ' . $payment_id);
-							error_log('Grateful Payment Return: Order ' . $order->get_id() . ' status updated to pending via API');
 							break;
 			}
 			
@@ -420,9 +400,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 				'callbackUrl' => $order_data['callback_url'],
 		);
 		
-		error_log('Grateful Payment: Creating payment with data: ' . json_encode($payment_data));
-		
-		// Make API call to Grateful
 		$response = wp_remote_post('https://www.grateful.me/api/payments/new', array(
 				'headers' => array(
 						'Content-Type' => 'application/json',
@@ -441,9 +418,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 		$body = wp_remote_retrieve_body($response);
 		$data = json_decode($body, true);
 		
-		error_log('Grateful Payment API Response Code: ' . $response_code);
-		error_log('Grateful Payment API Response Body: ' . $body);
-		
 		if ($response_code !== 200) {
 				error_log('Grateful Payment API Error: HTTP ' . $response_code . ' - ' . $body);
 				return false;
@@ -455,7 +429,6 @@ class Grateful_Payment_Gateway extends \WC_Payment_Gateway {
 				return false;
 		}
 		
-		error_log('Grateful Payment: Successfully created payment. URL: ' . $data['url']);
 		return $data;
 }
 
