@@ -1,3 +1,6 @@
+# DEPRECATED
+Find the new releases in [this repository](https://github.com/ExodusMovement/grateful-woocommerce-plugin).
+
 # Grateful for WooCommerce
 
 ## Installation
